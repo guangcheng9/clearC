@@ -1,5 +1,19 @@
 [
   {
+    "id": "android",
+    "name": "Android 用户数据",
+    "paths": ["%USERPROFILE%\\.android"],
+    "risk": "medium",
+    "category": "sdk",
+    "preferredAction": "migrate",
+    "preferredMove": "env",
+    "env": {
+      "ANDROID_USER_HOME": "D:\\DevData\\android"
+    },
+    "fallback": "junction",
+    "rollback": true
+  },
+  {
     "id": "cargo",
     "name": "Rust Cargo",
     "paths": ["%USERPROFILE%\\.cargo", "%USERPROFILE%\\.rustup"],
@@ -11,6 +25,90 @@
       "CARGO_HOME": "D:\\DevData\\cargo",
       "RUSTUP_HOME": "D:\\DevData\\rustup"
     },
+    "fallback": "junction",
+    "rollback": true
+  },
+  {
+    "id": "bun",
+    "name": "Bun",
+    "paths": ["%USERPROFILE%\\.bun"],
+    "risk": "medium",
+    "category": "package-manager",
+    "preferredAction": "migrate",
+    "preferredMove": "junction",
+    "env": {},
+    "fallback": "junction",
+    "rollback": true
+  },
+  {
+    "id": "cache",
+    "name": "通用缓存",
+    "paths": ["%USERPROFILE%\\.cache"],
+    "risk": "safe",
+    "category": "cache",
+    "preferredAction": "cleanup",
+    "preferredMove": "none",
+    "env": {},
+    "fallback": "none",
+    "rollback": false
+  },
+  {
+    "id": "chromium-snapshots",
+    "name": "Chromium 浏览器快照",
+    "paths": ["%USERPROFILE%\\.chromium-browser-snapshots"],
+    "risk": "safe",
+    "category": "browser-automation",
+    "preferredAction": "cleanup",
+    "preferredMove": "none",
+    "env": {},
+    "fallback": "none",
+    "rollback": false
+  },
+  {
+    "id": "claude",
+    "name": "Claude 配置",
+    "paths": ["%USERPROFILE%\\.claude", "%USERPROFILE%\\.claude-code-router"],
+    "risk": "medium",
+    "category": "ai-tool",
+    "preferredAction": "readonly",
+    "preferredMove": "junction",
+    "env": {},
+    "fallback": "junction",
+    "rollback": true
+  },
+  {
+    "id": "agents",
+    "name": "Agent 工具数据",
+    "paths": ["%USERPROFILE%\\.agents", "%USERPROFILE%\\.ai_completion"],
+    "risk": "medium",
+    "category": "ai-tool",
+    "preferredAction": "readonly",
+    "preferredMove": "junction",
+    "env": {},
+    "fallback": "junction",
+    "rollback": true
+  },
+  {
+    "id": "apifox",
+    "name": "Apifox 辅助工具",
+    "paths": ["%USERPROFILE%\\.apifox_helper", "%USERPROFILE%\\.apifox-mcp-server"],
+    "risk": "medium",
+    "category": "developer-tool",
+    "preferredAction": "readonly",
+    "preferredMove": "junction",
+    "env": {},
+    "fallback": "junction",
+    "rollback": true
+  },
+  {
+    "id": "codebuddy",
+    "name": "CodeBuddy",
+    "paths": ["%USERPROFILE%\\.codebuddy", "%USERPROFILE%\\.codebuddycn"],
+    "risk": "medium",
+    "category": "ai-tool",
+    "preferredAction": "readonly",
+    "preferredMove": "junction",
+    "env": {},
     "fallback": "junction",
     "rollback": true
   },

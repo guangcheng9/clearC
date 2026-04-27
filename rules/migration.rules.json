@@ -1,5 +1,13 @@
 [
   {
+    "id": "desktop",
+    "name": "桌面",
+    "source": "%USERPROFILE%\\Desktop",
+    "risk": "medium",
+    "strategy": "shell-folder",
+    "rollback": true
+  },
+  {
     "id": "downloads",
     "name": "下载",
     "source": "%USERPROFILE%\\Downloads",
@@ -11,6 +19,30 @@
     "id": "documents",
     "name": "文档",
     "source": "%USERPROFILE%\\Documents",
+    "risk": "medium",
+    "strategy": "shell-folder",
+    "rollback": true
+  },
+  {
+    "id": "pictures",
+    "name": "图片",
+    "source": "%USERPROFILE%\\Pictures",
+    "risk": "medium",
+    "strategy": "shell-folder",
+    "rollback": true
+  },
+  {
+    "id": "videos",
+    "name": "视频",
+    "source": "%USERPROFILE%\\Videos",
+    "risk": "medium",
+    "strategy": "shell-folder",
+    "rollback": true
+  },
+  {
+    "id": "music",
+    "name": "音乐",
+    "source": "%USERPROFILE%\\Music",
     "risk": "medium",
     "strategy": "shell-folder",
     "rollback": true

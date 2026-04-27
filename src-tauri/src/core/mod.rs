@@ -5,3 +5,4 @@ pub mod paths;
 pub mod registry;
 pub mod rules;
 pub mod safety;
+pub mod scan;

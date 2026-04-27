@@ -1,27 +1,184 @@
+import { useEffect, useState } from "react";
+import {
+  CleanupPlanDraft,
+  CleanupPreview,
+  QuarantineCleanupResult,
+  createCleanupPlanDraft,
+  executeTempQuarantineCleanup,
+  getCleanupPreview,
+} from "../lib/cleanup";
+import { CleanupRule, getRuleCatalog } from "../lib/rules";
+import { formatBytes } from "../lib/scan";
+
 export function Cleanup() {
+  const [rules, setRules] = useState<CleanupRule[]>([]);
+  const [preview, setPreview] = useState<CleanupPreview | null>(null);
+  const [draft, setDraft] = useState<CleanupPlanDraft | null>(null);
+  const [cleanupResult, setCleanupResult] = useState<QuarantineCleanupResult | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [creatingDraft, setCreatingDraft] = useState(false);
+  const [executingCleanup, setExecutingCleanup] = useState(false);
+  const [error, setError] = useState("");
+  const busy = loadingPreview || creatingDraft || executingCleanup;
+
+  useEffect(() => {
+    getRuleCatalog()
+      .then((catalog) => setRules(catalog.cleanup))
+      .catch((err) => setError(String(err)));
+  }, []);
+
+  function refreshPreview() {
+    setLoadingPreview(true);
+    setError("");
+    setDraft(null);
+    setCleanupResult(null);
+    getCleanupPreview()
+      .then(setPreview)
+      .catch((err) => setError(String(err)))
+      .finally(() => setLoadingPreview(false));
+  }
+
+  function createDraft() {
+    setCreatingDraft(true);
+    setError("");
+    createCleanupPlanDraft()
+      .then(setDraft)
+      .catch((err) => setError(String(err)))
+      .finally(() => setCreatingDraft(false));
+  }
+
+  function executeQuarantineCleanup() {
+    setExecutingCleanup(true);
+    setError("");
+    executeTempQuarantineCleanup()
+      .then(setCleanupResult)
+      .catch((err) => setError(String(err)))
+      .finally(() => setExecutingCleanup(false));
+  }
+
   return (
     <div className="page-grid">
-      <section className="panel wide">
+      <section className="panel wide" aria-busy={busy}>
         <h2>安全清理</h2>
-        <p>这里会承载系统缓存、临时文件、回收站和浏览器缓存的扫描、预览、确认和清理结果。</p>
+        <p>当前阶段只生成清理预览和确认模型，不执行删除。后续接入真实清理时会复用这套预览结果。</p>
+        {busy ? <p className="busy-text">正在处理，请稍候。窗口可以继续响应。</p> : null}
+        <button className="primary-action" disabled={busy} onClick={refreshPreview} type="button">
+          {loadingPreview ? "生成中..." : "生成清理预览"}
+        </button>
+        <button
+          className="secondary-action"
+          disabled={!preview || busy}
+          onClick={createDraft}
+          type="button"
+        >
+          {creatingDraft ? "记录中..." : "记录确认草稿"}
+        </button>
+        <button
+          className="danger-action"
+          disabled={!draft || busy}
+          onClick={executeQuarantineCleanup}
+          type="button"
+        >
+          {executingCleanup ? "隔离中..." : "移动临时文件到隔离区"}
+        </button>
+        {!preview ? <p className="hint-text">先生成清理预览后，才能记录草稿。</p> : null}
+        {preview && !draft ? <p className="hint-text">先记录确认草稿后，才能执行隔离移动。</p> : null}
       </section>
+
+      <div className="metric-row panel wide">
+        <div className="metric">
+          <span>预计释放</span>
+          <strong>{formatBytes(preview?.estimatedBytes ?? 0)}</strong>
+        </div>
+        <div className="metric">
+          <span>文件数量</span>
+          <strong>{preview?.fileCount ?? 0}</strong>
+        </div>
+        <div className="metric">
+          <span>跳过项</span>
+          <strong>{preview?.skippedCount ?? 0}</strong>
+        </div>
+        <div className="metric">
+          <span>执行状态</span>
+          <strong>{preview?.executable ? "可执行" : "仅预览"}</strong>
+        </div>
+      </div>
+
       <section className="panel">
-        <h2>低风险清理项</h2>
+        <h2>规则文件清理项</h2>
+        {error ? <p className="error-text">{error}</p> : null}
         <ul className="placeholder-list">
-          <li>
-            用户临时文件 <span className="tag">V1</span>
-          </li>
-          <li>
-            回收站 <span className="tag">V1</span>
-          </li>
-          <li>
-            缩略图缓存 <span className="tag">V1</span>
-          </li>
+          {rules.map((rule) => (
+            <li key={rule.id}>
+              <span>
+                {rule.name}
+                <small>{rule.paths.join(", ")}</small>
+              </span>
+              <span className="tag">{rule.risk}</span>
+            </li>
+          ))}
         </ul>
       </section>
       <section className="panel">
-        <h2>执行原则</h2>
-        <p>清理前展示明细和预计释放空间，执行时跳过占用和权限不足文件，结束后写入操作日志。</p>
+        <h2>确认模型</h2>
+        <p>
+          {preview?.requiresConfirmation
+            ? "清理动作必须二次确认。当前版本尚未开放执行按钮。"
+            : "当前预览无需确认。"}
+        </p>
+        {draft ? (
+          <p>
+            已记录草稿 <code>{draft.id}</code>，状态为 {draft.status}。
+          </p>
+        ) : null}
+        {cleanupResult ? (
+          <p>
+            已移动 {cleanupResult.movedCount} 项到隔离区，跳过 {cleanupResult.skippedCount} 项。
+          </p>
+        ) : null}
+      </section>
+
+      {cleanupResult ? (
+        <section className="panel wide">
+          <h2>隔离结果</h2>
+          <ul className="placeholder-list">
+            <li>
+              <span>
+                隔离目录
+                <small>{cleanupResult.quarantinePath}</small>
+              </span>
+              <span className="tag">{formatBytes(cleanupResult.movedBytes)}</span>
+            </li>
+            {cleanupResult.failures.map((failure) => (
+              <li key={`${failure.path}-${failure.reason}`}>
+                <span>
+                  {failure.path}
+                  <small>{failure.reason}</small>
+                </span>
+                <span className="tag">skipped</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <section className="panel wide">
+        <h2>预览明细</h2>
+        <ul className="placeholder-list">
+          {(preview?.items ?? []).map((item) => (
+            <li key={item.id}>
+              <span>
+                {item.name}
+                <small>
+                  {item.paths
+                    .map((path) => `${path.resolvedPath}${path.exists ? "" : " (不存在)"}`)
+                    .join(", ")}
+                </small>
+              </span>
+              <span className="tag">{formatBytes(item.estimatedBytes)}</span>
+            </li>
+          ))}
+        </ul>
       </section>
     </div>
   );

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { Analysis } from "./pages/Analysis";
 import { Cleanup } from "./pages/Cleanup";
 import { Dashboard } from "./pages/Dashboard";
@@ -96,7 +97,7 @@ function App() {
             Native Core {status?.nativeCoreReady ? "Ready" : "Pending"}
           </div>
         </header>
-        {page}
+        <ErrorBoundary>{page}</ErrorBoundary>
       </section>
     </main>
   );

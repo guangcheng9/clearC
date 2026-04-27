@@ -1,3 +1,6 @@
+import { useEffect, useState } from "react";
+import { DiskOverview, formatBytes, getDiskOverview } from "../lib/scan";
+
 type DashboardProps = {
   status:
     | {
@@ -10,52 +13,72 @@ type DashboardProps = {
 };
 
 export function Dashboard({ status }: DashboardProps) {
+  const [disk, setDisk] = useState<DiskOverview | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    getDiskOverview()
+      .then(setDisk)
+      .catch((err) => setError(String(err)));
+  }, []);
+
+  const usedPercent = disk?.totalBytes ? Math.round((disk.usedBytes / disk.totalBytes) * 100) : 0;
+
   return (
     <div className="page-grid">
       <section className="panel wide">
-        <h2>项目初始化状态</h2>
+        <h2>系统盘概览</h2>
         <p>
-          当前版本先完成桌面壳、页面框架、规则目录和 Native Core 命令骨架。真实扫描和清理会在后续里程碑逐步接入。
+          当前阶段接入只读扫描能力，只读取容量和规则路径占用，不执行清理、删除或迁移操作。
         </p>
+        {error ? <p className="error-text">{error}</p> : null}
       </section>
 
       <div className="metric-row panel wide">
         <div className="metric">
-          <span>应用</span>
-          <strong>{status?.appName ?? "ClearC"}</strong>
+          <span>系统盘</span>
+          <strong>{disk?.drive ?? "读取中"}</strong>
         </div>
         <div className="metric">
-          <span>版本</span>
-          <strong>{status?.version ?? "0.1.0"}</strong>
+          <span>总容量</span>
+          <strong>{formatBytes(disk?.totalBytes ?? 0)}</strong>
         </div>
         <div className="metric">
-          <span>核心层</span>
-          <strong>{status?.nativeCoreReady ? "就绪" : "等待"}</strong>
+          <span>已用</span>
+          <strong>{formatBytes(disk?.usedBytes ?? 0)}</strong>
         </div>
         <div className="metric">
-          <span>规则目录</span>
-          <strong>{status?.rulesPath ?? "rules"}</strong>
+          <span>可用</span>
+          <strong>{formatBytes(disk?.freeBytes ?? 0)}</strong>
         </div>
       </div>
 
+      <section className="panel wide">
+        <h2>使用率</h2>
+        <div className="progress-track" aria-label="系统盘使用率">
+          <div className="progress-fill" style={{ width: `${usedPercent}%` }} />
+        </div>
+        <p>{usedPercent}% 已使用</p>
+      </section>
+
       <section className="panel">
-        <h2>V0 目标</h2>
+        <h2>核心状态</h2>
         <ul className="placeholder-list">
           <li>
-            页面框架 <span className="tag">已建立</span>
+            {status?.appName ?? "ClearC"} <span className="tag">{status?.version ?? "0.1.0"}</span>
           </li>
           <li>
-            规则文件 <span className="tag">已预留</span>
+            Native Core <span className="tag">{status?.nativeCoreReady ? "ready" : "pending"}</span>
           </li>
           <li>
-            Rust 命令 <span className="tag">已预留</span>
+            规则目录 <span className="tag">{status?.rulesPath ?? "rules"}</span>
           </li>
         </ul>
       </section>
 
       <section className="panel">
-        <h2>下一步</h2>
-        <p>接入只读扫描：磁盘容量、规则命中、目录大小统计和扫描进度事件。</p>
+        <h2>当前步骤</h2>
+        <p>`V1 / M2` 正在实现扫描系统：磁盘概览、规则路径扫描、大小统计和失败项记录。</p>
       </section>
     </div>
   );

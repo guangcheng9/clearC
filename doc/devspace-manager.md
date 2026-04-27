@@ -50,3 +50,10 @@ C:\Users\当前用户\.codebuddy
 - 通用 `.cache`。
 
 `.aws`、云服务凭据、AI 工具账号授权目录默认不自动迁移。
+
+## 当前实现状态
+
+- 已支持规则驱动扫描。
+- 已支持统计存在性、文件数、跳过数和占用空间。
+- 已支持 Android、Cargo、Bun、通用缓存、Chromium snapshots、Claude、Agents、Apifox、CodeBuddy、AWS 等规则。
+- 当前只读扫描，不清理、不迁移、不创建 Junction、不修改环境变量。
