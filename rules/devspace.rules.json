@@ -1,0 +1,27 @@
+[
+  {
+    "id": "cargo",
+    "name": "Rust Cargo",
+    "paths": ["%USERPROFILE%\\.cargo", "%USERPROFILE%\\.rustup"],
+    "risk": "medium",
+    "category": "developer-tool",
+    "preferredAction": "migrate",
+    "preferredMove": "env",
+    "env": {
+      "CARGO_HOME": "D:\\DevData\\cargo",
+      "RUSTUP_HOME": "D:\\DevData\\rustup"
+    },
+    "fallback": "junction",
+    "rollback": true
+  },
+  {
+    "id": "aws",
+    "name": "AWS 配置",
+    "paths": ["%USERPROFILE%\\.aws"],
+    "risk": "high",
+    "category": "credential",
+    "preferredAction": "readonly",
+    "preferredMove": "none",
+    "rollback": false
+  }
+]

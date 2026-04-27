@@ -1,0 +1,18 @@
+[
+  {
+    "id": "temp-user",
+    "name": "用户临时文件",
+    "paths": ["%TEMP%"],
+    "risk": "safe",
+    "action": "delete",
+    "exclude": ["*.lock"]
+  },
+  {
+    "id": "recycle-bin",
+    "name": "回收站",
+    "paths": ["$Recycle.Bin"],
+    "risk": "safe",
+    "action": "empty-recycle-bin",
+    "exclude": []
+  }
+]

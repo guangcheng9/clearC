@@ -1,0 +1,18 @@
+[
+  {
+    "id": "downloads",
+    "name": "下载",
+    "source": "%USERPROFILE%\\Downloads",
+    "risk": "medium",
+    "strategy": "shell-folder",
+    "rollback": true
+  },
+  {
+    "id": "documents",
+    "name": "文档",
+    "source": "%USERPROFILE%\\Documents",
+    "risk": "medium",
+    "strategy": "shell-folder",
+    "rollback": true
+  }
+]
