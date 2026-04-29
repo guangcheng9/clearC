@@ -1,3 +1,4 @@
+use crate::commands::tasks::{clear_task_cancel, is_task_cancelled};
 use crate::core::{
     paths::{expand_path, system_drive_root},
     registry::{read_user_shell_folder, read_user_shell_folder_value, write_user_shell_folder},
@@ -11,8 +12,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     fs,
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
+use tauri::{AppHandle, Emitter};
 
 const MIGRATION_CONFIRMATION: &str = "MIGRATE_USER_FOLDER";
 const MIGRATION_ROLLBACK_CONFIRMATION: &str = "ROLLBACK_USER_FOLDER_MIGRATION";
@@ -134,6 +137,32 @@ struct ControlledMoveResult {
     bytes: u64,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrationTaskProgressEvent {
+    task: String,
+    current: u64,
+    total: u64,
+    label: String,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    processed_items: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    moved_count: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    skipped_count: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    processed_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    failure_count: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_file_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_file_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_file_total_bytes: Option<u64>,
+}
+
 #[tauri::command]
 pub fn get_migration_targets() -> Result<Vec<MigrationTarget>, String> {
     let catalog = load_catalog()?;
@@ -163,11 +192,29 @@ pub fn get_user_folder_targets() -> Result<Vec<UserFolderTarget>, String> {
 
 #[tauri::command]
 pub async fn precheck_user_folder_migration(
+    app: AppHandle,
     folder_id: String,
     target_root: String,
 ) -> Result<MigrationPrecheck, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        precheck_user_folder_migration_blocking(folder_id, target_root)
+        emit_migration_task_progress(
+            &app,
+            "migration-precheck",
+            0,
+            1,
+            "开始迁移预检查".to_string(),
+            "running",
+        );
+        let result = precheck_user_folder_migration_blocking(folder_id, target_root);
+        emit_migration_task_progress(
+            &app,
+            "migration-precheck",
+            1,
+            1,
+            "迁移预检查完成".to_string(),
+            "completed",
+        );
+        result
     })
     .await
     .map_err(|err| format!("migration precheck task failed: {}", err))?
@@ -175,11 +222,29 @@ pub async fn precheck_user_folder_migration(
 
 #[tauri::command]
 pub async fn create_user_folder_migration_plan(
+    app: AppHandle,
     folder_id: String,
     target_root: String,
 ) -> Result<UserFolderMigrationPlan, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        create_user_folder_migration_plan_blocking(folder_id, target_root)
+        emit_migration_task_progress(
+            &app,
+            "migration-plan",
+            0,
+            1,
+            "开始生成迁移计划".to_string(),
+            "running",
+        );
+        let result = create_user_folder_migration_plan_blocking(folder_id, target_root);
+        emit_migration_task_progress(
+            &app,
+            "migration-plan",
+            1,
+            1,
+            "迁移计划生成完成".to_string(),
+            "completed",
+        );
+        result
     })
     .await
     .map_err(|err| format!("migration plan task failed: {}", err))?
@@ -187,12 +252,13 @@ pub async fn create_user_folder_migration_plan(
 
 #[tauri::command]
 pub async fn execute_user_folder_migration(
+    app: AppHandle,
     folder_id: String,
     target_root: String,
     confirmation: String,
 ) -> Result<UserFolderMigrationResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        execute_user_folder_migration_blocking(folder_id, target_root, confirmation)
+        execute_user_folder_migration_blocking(app, folder_id, target_root, confirmation)
     })
     .await
     .map_err(|err| format!("migration task failed: {}", err))?
@@ -200,11 +266,12 @@ pub async fn execute_user_folder_migration(
 
 #[tauri::command]
 pub async fn rollback_user_folder_migration(
+    app: AppHandle,
     operation_id: String,
     confirmation: String,
 ) -> Result<UserFolderMigrationRollbackResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        rollback_user_folder_migration_blocking(operation_id, confirmation)
+        rollback_user_folder_migration_blocking(app, operation_id, confirmation)
     })
     .await
     .map_err(|err| format!("migration rollback task failed: {}", err))?
@@ -335,10 +402,12 @@ fn create_user_folder_migration_plan_blocking(
 }
 
 fn execute_user_folder_migration_blocking(
+    app: AppHandle,
     folder_id: String,
     target_root: String,
     confirmation: String,
 ) -> Result<UserFolderMigrationResult, String> {
+    clear_task_cancel("migration-execute");
     if confirmation != MIGRATION_CONFIRMATION {
         return Err("invalid migration confirmation".to_string());
     }
@@ -374,7 +443,47 @@ fn execute_user_folder_migration_blocking(
             err
         )
     })?;
-    for entry in entries {
+    let entries: Vec<_> = entries.collect();
+    let total = entries.len() as u64;
+    emit_migration_task_progress(
+        &app,
+        "migration-execute",
+        0,
+        total,
+        format!("开始迁移 {}", plan.name),
+        "running",
+    );
+
+    for (index, entry) in entries.into_iter().enumerate() {
+        if is_task_cancelled("migration-execute") {
+            emit_migration_task_progress(
+                &app,
+                "migration-execute",
+                index as u64,
+                total,
+                "用户目录迁移已取消".to_string(),
+                "cancelled",
+            );
+            clear_task_cancel("migration-execute");
+            return Err("migration-execute cancelled".to_string());
+        }
+
+        emit_migration_task_progress_with_stats(
+            &app,
+            "migration-execute",
+            index as u64,
+            total,
+            format!("正在迁移 {}", plan.name),
+            "running",
+            MigrationProgressStats {
+                processed_items: Some(moved_count.saturating_add(skipped_count)),
+                moved_count: Some(moved_count),
+                skipped_count: Some(skipped_count),
+                processed_bytes: Some(moved_bytes),
+                failure_count: Some(failures.len() as u64),
+                ..MigrationProgressStats::default()
+            },
+        );
         let entry = match entry {
             Ok(entry) => entry,
             Err(err) => {
@@ -407,7 +516,24 @@ fn execute_user_folder_migration_blocking(
         }
 
         let size = path_size(&source).unwrap_or(0);
-        match move_path_controlled(&source, &destination) {
+        let copy_progress = CopyProgressContext {
+            app: &app,
+            task: "migration-execute",
+            item_index: index as u64,
+            total_items: total,
+            processed_items: moved_count.saturating_add(skipped_count),
+            moved_count,
+            skipped_count,
+            processed_bytes: moved_bytes,
+            failure_count: failures.len() as u64,
+            verb: "正在复制",
+        };
+        match move_path_controlled_with_cancel(
+            &source,
+            &destination,
+            Some("migration-execute"),
+            Some(&copy_progress),
+        ) {
             Ok(move_result) => {
                 moved_count += 1;
                 moved_bytes = moved_bytes.saturating_add(move_result.bytes);
@@ -418,6 +544,18 @@ fn execute_user_folder_migration_blocking(
                 });
             }
             Err(err) => {
+                if err.contains("cancelled") {
+                    emit_migration_task_progress(
+                        &app,
+                        "migration-execute",
+                        index as u64,
+                        total,
+                        "用户目录迁移已取消".to_string(),
+                        "cancelled",
+                    );
+                    clear_task_cancel("migration-execute");
+                    return Err(err);
+                }
                 skipped_count += 1;
                 failures.push(MigrationFailure {
                     path: source.display().to_string(),
@@ -425,6 +563,23 @@ fn execute_user_folder_migration_blocking(
                 });
             }
         }
+
+        emit_migration_task_progress_with_stats(
+            &app,
+            "migration-execute",
+            index as u64 + 1,
+            total,
+            format!("已处理 {}", source.display()),
+            "running",
+            MigrationProgressStats {
+                processed_items: Some(moved_count.saturating_add(skipped_count)),
+                moved_count: Some(moved_count),
+                skipped_count: Some(skipped_count),
+                processed_bytes: Some(moved_bytes),
+                failure_count: Some(failures.len() as u64),
+                ..MigrationProgressStats::default()
+            },
+        );
     }
 
     let mut registry_updated = false;
@@ -476,6 +631,24 @@ fn execute_user_folder_migration_blocking(
         }),
     })?;
 
+    emit_migration_task_progress_with_stats(
+        &app,
+        "migration-execute",
+        total,
+        total,
+        "用户目录迁移完成".to_string(),
+        "completed",
+        MigrationProgressStats {
+            processed_items: Some(moved_count.saturating_add(skipped_count)),
+            moved_count: Some(moved_count),
+            skipped_count: Some(skipped_count),
+            processed_bytes: Some(moved_bytes),
+            failure_count: Some(failures.len() as u64),
+            ..MigrationProgressStats::default()
+        },
+    );
+    clear_task_cancel("migration-execute");
+
     Ok(UserFolderMigrationResult {
         id: operation_id,
         status,
@@ -491,9 +664,11 @@ fn execute_user_folder_migration_blocking(
 }
 
 fn rollback_user_folder_migration_blocking(
+    app: AppHandle,
     operation_id: String,
     confirmation: String,
 ) -> Result<UserFolderMigrationRollbackResult, String> {
+    clear_task_cancel("migration-rollback");
     if confirmation != MIGRATION_ROLLBACK_CONFIRMATION {
         return Err("invalid migration rollback confirmation".to_string());
     }
@@ -543,8 +718,47 @@ fn rollback_user_folder_migration_blocking(
     let mut restored_count = 0u64;
     let mut skipped_count = 0u64;
     let mut failures = Vec::new();
+    let total = moved_items.len() as u64;
 
-    for item in moved_items {
+    emit_migration_task_progress(
+        &app,
+        "migration-rollback",
+        0,
+        total,
+        "开始回滚用户目录迁移".to_string(),
+        "running",
+    );
+
+    for (index, item) in moved_items.into_iter().enumerate() {
+        if is_task_cancelled("migration-rollback") {
+            emit_migration_task_progress(
+                &app,
+                "migration-rollback",
+                index as u64,
+                total,
+                "用户目录迁移回滚已取消".to_string(),
+                "cancelled",
+            );
+            clear_task_cancel("migration-rollback");
+            return Err("migration-rollback cancelled".to_string());
+        }
+
+        emit_migration_task_progress_with_stats(
+            &app,
+            "migration-rollback",
+            index as u64,
+            total,
+            "正在回滚用户目录迁移".to_string(),
+            "running",
+            MigrationProgressStats {
+                processed_items: Some(restored_count.saturating_add(skipped_count)),
+                moved_count: Some(restored_count),
+                skipped_count: Some(skipped_count),
+                processed_bytes: None,
+                failure_count: Some(failures.len() as u64),
+                ..MigrationProgressStats::default()
+            },
+        );
         let source = PathBuf::from(&item.target_path);
         let destination = PathBuf::from(&item.original_path);
 
@@ -577,9 +791,38 @@ fn rollback_user_folder_migration_blocking(
             }
         }
 
-        match move_path_controlled(&source, &destination) {
+        let copy_progress = CopyProgressContext {
+            app: &app,
+            task: "migration-rollback",
+            item_index: index as u64,
+            total_items: total,
+            processed_items: restored_count.saturating_add(skipped_count),
+            moved_count: restored_count,
+            skipped_count,
+            processed_bytes: 0,
+            failure_count: failures.len() as u64,
+            verb: "正在恢复",
+        };
+        match move_path_controlled_with_cancel(
+            &source,
+            &destination,
+            Some("migration-rollback"),
+            Some(&copy_progress),
+        ) {
             Ok(_) => restored_count += 1,
             Err(err) => {
+                if err.contains("cancelled") {
+                    emit_migration_task_progress(
+                        &app,
+                        "migration-rollback",
+                        index as u64,
+                        total,
+                        "用户目录迁移回滚已取消".to_string(),
+                        "cancelled",
+                    );
+                    clear_task_cancel("migration-rollback");
+                    return Err(err);
+                }
                 skipped_count += 1;
                 failures.push(MigrationFailure {
                     path: source.display().to_string(),
@@ -587,6 +830,23 @@ fn rollback_user_folder_migration_blocking(
                 });
             }
         }
+
+        emit_migration_task_progress_with_stats(
+            &app,
+            "migration-rollback",
+            index as u64 + 1,
+            total,
+            format!("已处理 {}", source.display()),
+            "running",
+            MigrationProgressStats {
+                processed_items: Some(restored_count.saturating_add(skipped_count)),
+                moved_count: Some(restored_count),
+                skipped_count: Some(skipped_count),
+                processed_bytes: None,
+                failure_count: Some(failures.len() as u64),
+                ..MigrationProgressStats::default()
+            },
+        );
     }
 
     let mut restored_registry = false;
@@ -627,6 +887,24 @@ fn rollback_user_folder_migration_blocking(
         }),
     })?;
 
+    emit_migration_task_progress_with_stats(
+        &app,
+        "migration-rollback",
+        total,
+        total,
+        "用户目录迁移回滚完成".to_string(),
+        "completed",
+        MigrationProgressStats {
+            processed_items: Some(restored_count.saturating_add(skipped_count)),
+            moved_count: Some(restored_count),
+            skipped_count: Some(skipped_count),
+            processed_bytes: None,
+            failure_count: Some(failures.len() as u64),
+            ..MigrationProgressStats::default()
+        },
+    );
+    clear_task_cancel("migration-rollback");
+
     Ok(UserFolderMigrationRollbackResult {
         id: rollback_id,
         rollback_of: operation_id,
@@ -636,6 +914,66 @@ fn rollback_user_folder_migration_blocking(
         restored_registry,
         failures,
     })
+}
+
+fn emit_migration_task_progress(
+    app: &AppHandle,
+    task: &str,
+    current: u64,
+    total: u64,
+    label: String,
+    status: &str,
+) {
+    emit_migration_task_progress_with_stats(
+        app,
+        task,
+        current,
+        total,
+        label,
+        status,
+        MigrationProgressStats::default(),
+    );
+}
+
+#[derive(Default)]
+struct MigrationProgressStats {
+    processed_items: Option<u64>,
+    moved_count: Option<u64>,
+    skipped_count: Option<u64>,
+    processed_bytes: Option<u64>,
+    failure_count: Option<u64>,
+    current_file_path: Option<String>,
+    current_file_bytes: Option<u64>,
+    current_file_total_bytes: Option<u64>,
+}
+
+fn emit_migration_task_progress_with_stats(
+    app: &AppHandle,
+    task: &str,
+    current: u64,
+    total: u64,
+    label: String,
+    status: &str,
+    stats: MigrationProgressStats,
+) {
+    let _ = app.emit(
+        "clearc://task-progress",
+        MigrationTaskProgressEvent {
+            task: task.to_string(),
+            current,
+            total,
+            label,
+            status: status.to_string(),
+            processed_items: stats.processed_items,
+            moved_count: stats.moved_count,
+            skipped_count: stats.skipped_count,
+            processed_bytes: stats.processed_bytes,
+            failure_count: stats.failure_count,
+            current_file_path: stats.current_file_path,
+            current_file_bytes: stats.current_file_bytes,
+            current_file_total_bytes: stats.current_file_total_bytes,
+        },
+    );
 }
 
 fn build_user_folder_target(rule: MigrationRule) -> Result<UserFolderTarget, String> {
@@ -743,7 +1081,17 @@ fn path_size(path: &PathBuf) -> Result<u64, String> {
     Ok(total)
 }
 
+#[cfg(test)]
 fn move_path_controlled(source: &Path, destination: &Path) -> Result<ControlledMoveResult, String> {
+    move_path_controlled_with_cancel(source, destination, None, None)
+}
+
+fn move_path_controlled_with_cancel(
+    source: &Path,
+    destination: &Path,
+    cancel_task: Option<&str>,
+    progress: Option<&CopyProgressContext>,
+) -> Result<ControlledMoveResult, String> {
     if destination.exists() {
         return Err("target item already exists".to_string());
     }
@@ -763,7 +1111,10 @@ fn move_path_controlled(source: &Path, destination: &Path) -> Result<ControlledM
         }
     }
 
-    copy_path_verified(source, destination)?;
+    if let Err(err) = copy_path_verified(source, destination, cancel_task, progress) {
+        let _ = remove_path(destination);
+        return Err(err);
+    }
     let copied_bytes = path_size(&destination.to_path_buf()).unwrap_or(0);
     if copied_bytes != bytes {
         let _ = remove_path(destination);
@@ -787,24 +1138,18 @@ fn move_path_controlled(source: &Path, destination: &Path) -> Result<ControlledM
     Ok(ControlledMoveResult { bytes })
 }
 
-fn copy_path_verified(source: &Path, destination: &Path) -> Result<(), String> {
+fn copy_path_verified(
+    source: &Path,
+    destination: &Path,
+    cancel_task: Option<&str>,
+    progress: Option<&CopyProgressContext>,
+) -> Result<(), String> {
+    check_copy_cancel(cancel_task)?;
     let metadata = fs::symlink_metadata(source)
         .map_err(|err| format!("failed to read {}: {}", source.display(), err))?;
 
     if metadata.is_file() {
-        if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|err| format!("failed to create {}: {}", parent.display(), err))?;
-        }
-        fs::copy(source, destination).map_err(|err| {
-            format!(
-                "failed to copy {} to {}: {}",
-                source.display(),
-                destination.display(),
-                err
-            )
-        })?;
-        return Ok(());
+        return copy_file_verified(source, destination, cancel_task, progress);
     }
 
     if !metadata.is_dir() {
@@ -826,9 +1171,103 @@ fn copy_path_verified(source: &Path, destination: &Path) -> Result<(), String> {
                 destination_child.display()
             ));
         }
-        copy_path_verified(&source_child, &destination_child)?;
+        copy_path_verified(&source_child, &destination_child, cancel_task, progress)?;
     }
 
+    Ok(())
+}
+
+struct CopyProgressContext<'a> {
+    app: &'a AppHandle,
+    task: &'a str,
+    item_index: u64,
+    total_items: u64,
+    processed_items: u64,
+    moved_count: u64,
+    skipped_count: u64,
+    processed_bytes: u64,
+    failure_count: u64,
+    verb: &'a str,
+}
+
+fn copy_file_verified(
+    source: &Path,
+    destination: &Path,
+    cancel_task: Option<&str>,
+    progress: Option<&CopyProgressContext>,
+) -> Result<(), String> {
+    check_copy_cancel(cancel_task)?;
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create {}: {}", parent.display(), err))?;
+    }
+
+    let mut reader = fs::File::open(source)
+        .map_err(|err| format!("failed to open {}: {}", source.display(), err))?;
+    let mut writer = fs::File::create(destination)
+        .map_err(|err| format!("failed to create {}: {}", destination.display(), err))?;
+    let mut buffer = vec![0u8; 1024 * 1024];
+    let total_bytes = fs::symlink_metadata(source)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    let mut copied_bytes = 0u64;
+
+    loop {
+        check_copy_cancel(cancel_task)?;
+        let bytes_read = reader
+            .read(&mut buffer)
+            .map_err(|err| format!("failed to read {}: {}", source.display(), err))?;
+        if bytes_read == 0 {
+            break;
+        }
+        writer
+            .write_all(&buffer[..bytes_read])
+            .map_err(|err| format!("failed to write {}: {}", destination.display(), err))?;
+        copied_bytes = copied_bytes.saturating_add(bytes_read as u64);
+        if let Some(progress) = progress {
+            emit_copy_progress(progress, source, copied_bytes, total_bytes);
+        }
+    }
+
+    writer
+        .flush()
+        .map_err(|err| format!("failed to flush {}: {}", destination.display(), err))?;
+    Ok(())
+}
+
+fn emit_copy_progress(
+    progress: &CopyProgressContext,
+    source: &Path,
+    copied_bytes: u64,
+    total_bytes: u64,
+) {
+    emit_migration_task_progress_with_stats(
+        progress.app,
+        progress.task,
+        progress.item_index,
+        progress.total_items,
+        format!("{} {}", progress.verb, source.display()),
+        "running",
+        MigrationProgressStats {
+            processed_items: Some(progress.processed_items),
+            moved_count: Some(progress.moved_count),
+            skipped_count: Some(progress.skipped_count),
+            processed_bytes: Some(progress.processed_bytes.saturating_add(copied_bytes)),
+            failure_count: Some(progress.failure_count),
+            current_file_path: Some(source.display().to_string()),
+            current_file_bytes: Some(copied_bytes),
+            current_file_total_bytes: Some(total_bytes),
+            ..MigrationProgressStats::default()
+        },
+    );
+}
+
+fn check_copy_cancel(cancel_task: Option<&str>) -> Result<(), String> {
+    if let Some(task) = cancel_task {
+        if is_task_cancelled(task) {
+            return Err(format!("{} cancelled", task));
+        }
+    }
     Ok(())
 }
 
@@ -846,8 +1285,10 @@ fn remove_path(path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        drive_root_for_path, move_path_controlled, registry_value_name, safe_folder_dir_name,
+        copy_file_verified, drive_root_for_path, move_path_controlled, registry_value_name,
+        safe_folder_dir_name,
     };
+    use crate::commands::tasks::{clear_task_cancel, request_task_cancel};
     use std::{
         fs,
         path::PathBuf,
@@ -910,6 +1351,23 @@ mod tests {
             fs::read_to_string(destination.join("nested").join("file.txt")).unwrap(),
             "hello"
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cancellable_copy_checks_cancel_before_copying() {
+        let root = test_dir("clearc-copy-cancel");
+        let source = root.join("source.txt");
+        let destination = root.join("destination.txt");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(&source, "source").unwrap();
+
+        request_task_cancel("test-copy-cancel".to_string()).unwrap();
+        let result = copy_file_verified(&source, &destination, Some("test-copy-cancel"), None);
+
+        assert!(result.is_err());
+        assert!(!destination.exists());
+        clear_task_cancel("test-copy-cancel");
         let _ = fs::remove_dir_all(root);
     }
 

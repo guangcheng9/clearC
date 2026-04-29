@@ -8,12 +8,14 @@ export type LogEntryView = {
   rollbackable: boolean;
   canRollback: boolean;
   summary: string;
+  failureCount: number;
 };
 
 export type LogSummary = {
   totalOperations: number;
   rollbackableOperations: number;
   plannedOperations: number;
+  failedOperations: number;
   recent: LogEntryView[];
 };
 
@@ -38,4 +40,20 @@ export function rollbackQuarantineCleanup(operationId: string) {
     operationId,
     confirmation: "RESTORE_FROM_QUARANTINE",
   });
+}
+
+export type FailureExportResult = {
+  operationId: string;
+  exportedCount: number;
+  path: string;
+};
+
+export function exportOperationFailures(operationId: string) {
+  return invoke<FailureExportResult>("export_operation_failures", {
+    operationId,
+  });
+}
+
+export function openFailureExportFolder() {
+  return invoke<string>("open_failure_export_folder");
 }

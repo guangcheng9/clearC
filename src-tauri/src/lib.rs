@@ -23,8 +23,17 @@ pub fn run() {
             commands::migration::rollback_user_folder_migration,
             commands::devspace::get_devspace_targets,
             commands::devspace::scan_devspace_targets,
+            commands::devspace::create_devspace_env_migration_plan,
+            commands::devspace::execute_devspace_env_migration,
+            commands::devspace::rollback_devspace_env_migration,
+            commands::devspace::create_devspace_junction_plan,
+            commands::devspace::execute_devspace_junction_migration,
+            commands::devspace::rollback_devspace_junction_migration,
             commands::logs::get_log_summary,
-            commands::logs::rollback_quarantine_cleanup
+            commands::logs::export_operation_failures,
+            commands::logs::open_failure_export_folder,
+            commands::logs::rollback_quarantine_cleanup,
+            commands::tasks::request_task_cancel
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

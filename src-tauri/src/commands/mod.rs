@@ -5,3 +5,4 @@ pub mod migration;
 pub mod rules;
 pub mod scan;
 pub mod system;
+pub mod tasks;

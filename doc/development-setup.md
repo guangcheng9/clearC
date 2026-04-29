@@ -84,7 +84,18 @@ cargo check: passed
 - `V1 / M6`：开发工具管理进入只读扫描阶段，已支持规则驱动统计开发工具、AI 工具和缓存目录占用。
 - `V1 / M7`：打包发布准备已完成基础验证，release exe 可生成，NSIS/MSI 安装包因下载 NSIS 工具链超时暂未生成。
 - `V1.1 / 可用性修复`：扫描、预览、隔离清理、迁移预检查和回滚已改为后台执行，并补充按钮 loading 与禁用原因提示。
-- `V2 / M8-M9`：用户目录迁移执行与回滚代码加固已完成，支持跨盘移动 fallback、注册表类型保留、失败日志、前端确认短语和 Logs 页面迁移回滚入口；待真实用户目录手动验收。
+- `V2 / M8-M9`：用户目录迁移执行与回滚代码加固已完成，支持跨盘移动 fallback、注册表类型保留、失败日志、前端确认短语和 Logs 页面迁移回滚入口；后续执行真实用户目录手动验收。
+- `V2 / M10`：开发工具环境变量迁移代码实现已完成，支持 Android、Cargo、Rustup 的环境变量计划、执行和 Logs 页面回滚；后续执行真实环境变量手动验收。
+- `V2 / M11`：Junction 迁移预案计划能力已完成，支持 DevSpace 页面生成源路径、目标路径、空间、目标冲突和已有 Junction 状态；当前不创建 Junction。
+- `V2 / M11.1`：Junction 真实执行与回滚代码实现已完成，支持基于 M11 预案执行目录迁移、创建 Junction、写入可回滚日志和 Logs 页面回滚；后续执行真实 Junction 手动验收。
+- `V2 / M12`：任务体验增强已完成，Logs 页面已升级为任务状态中心，支持本地任务队列、最近任务、异常任务统计、失败项 CSV 导出、导出目录打开、主要长任务进度事件、递归扫描进度、条目级进度统计、迁移/隔离跨盘复制字节级进度、跨盘复制分块取消和协作式取消。
+
+## 后续手动验收队列
+
+- `V2 / M8`：在受控测试账号或测试目录中执行用户目录真实迁移，并记录注册表、目标目录、移动项和失败项状态。
+- `V2 / M9`：基于真实迁移日志执行用户目录回滚，并记录文件恢复、注册表恢复和重复回滚拒绝结果。
+- `V2 / M10`：在受控测试环境中执行 Android、Cargo、Rustup 用户级环境变量迁移和回滚，并确认新终端读取结果。
+- `V2 / M11.1`：在测试目录中执行 Junction 创建和回滚，确认原路径 Junction、目标内容、日志和重复回滚拒绝结果。
 
 ## 最近验证结果
 
@@ -95,6 +106,16 @@ cargo fmt --check: passed
 npm run tauri:build: exe passed, bundle failed on NSIS download timeout
 npm run tauri:build -- --no-bundle: passed
 cargo test: passed
+```
+
+最近一次 `V0-V2` 实现状态核对验证：
+
+```txt
+npm run build: passed
+cargo check: passed
+cargo fmt --check: passed
+cargo test: passed, 13 tests
+核对结论：V0、V1、V1.1、V2 已知编码项均已实现；V2 / M8、M9、M10、M11.1 进入后续真实手动验收队列。
 ```
 
 最近一次 `V2 / M8-M9` 加固验证：
@@ -114,4 +135,149 @@ cargo test: passed, 5 tests
 npm run build: passed
 cargo check: passed
 cargo fmt --check: passed
+```
+
+最近一次 `V2 / M10` 开发工具环境变量迁移验证：
+
+```txt
+npm run build: passed
+cargo check: passed
+cargo fmt --check: passed
+cargo test: passed, 7 tests
+```
+
+最近一次 `V2 / M11` Junction 迁移预案验证：
+
+```txt
+npm run build: passed
+cargo check: passed
+cargo fmt --check: passed
+cargo test: passed, 9 tests
+```
+
+最近一次 `V2 / M11.1` Junction 真实执行与回滚验证：
+
+```txt
+npm run build: passed
+cargo check: passed
+cargo fmt --check: passed
+cargo test: passed, 13 tests
+真实 Junction 未在当前机器自动执行，待手动验收。
+```
+
+最近一次 `V2 / M12` 任务体验增强验证：
+
+```txt
+npm run build: passed
+cargo check: passed
+cargo fmt --check: passed
+cargo test: passed, 12 tests
+```
+
+最近一次 `V2 / M12` 本地任务队列验证：
+
+```txt
+npm run build: passed
+cargo check: passed
+cargo fmt --check: passed
+cargo test: passed, 12 tests
+```
+
+最近一次 `V2 / M12` Analysis 扫描进度事件验证：
+
+```txt
+npm run build: passed
+cargo check: passed
+cargo fmt --check: passed
+cargo test: passed, 12 tests
+```
+
+最近一次 `V2 / M12` DevSpace 扫描进度事件验证：
+
+```txt
+npm run build: passed
+cargo check: passed
+cargo fmt --check: passed
+cargo test: passed, 12 tests
+```
+
+最近一次 `V2 / M12` Cleanup 进度事件验证：
+
+```txt
+npm run build: passed
+cargo check: passed
+cargo fmt --check: passed
+cargo test: passed, 12 tests
+```
+
+最近一次 `V2 / M12` Migration 进度事件验证：
+
+```txt
+npm run build: passed
+cargo check: passed
+cargo fmt --check: passed
+cargo test: passed, 12 tests
+```
+
+最近一次 `V2 / M12` 协作式取消验证：
+
+```txt
+npm run build: passed
+cargo check: passed
+cargo fmt --check: passed
+cargo test: passed, 12 tests
+```
+
+最近一次 `V2 / M12` 导出目录打开能力验证：
+
+```txt
+npm run build: passed
+cargo check: passed
+cargo fmt --check: passed
+cargo test: passed, 12 tests
+```
+
+最近一次 `V2 / M12` 条目级进度统计验证：
+
+```txt
+npm run build: passed
+cargo check: passed
+cargo fmt --check: passed
+cargo test: passed, 12 tests
+```
+
+最近一次 `V2 / M12` 迁移跨盘复制分块取消验证：
+
+```txt
+npm run build: passed
+cargo check: passed
+cargo fmt --check: passed
+cargo test: passed, 13 tests
+```
+
+最近一次 `V2 / M12` 迁移跨盘复制字节级进度验证：
+
+```txt
+npm run build: passed
+cargo check: passed
+cargo fmt --check: passed
+cargo test: passed, 13 tests
+```
+
+最近一次 `V2 / M12` 递归扫描进度验证：
+
+```txt
+npm run build: passed
+cargo check: passed
+cargo fmt --check: passed
+cargo test: passed, 13 tests
+```
+
+最近一次 `V2 / M12` 隔离清理复制 fallback 字节级进度验证：
+
+```txt
+npm run build: passed
+cargo check: passed
+cargo fmt --check: passed
+cargo test: passed, 13 tests
 ```

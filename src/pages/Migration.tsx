@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
 import {
   createUserFolderMigrationPlan,
@@ -11,6 +12,23 @@ import {
 } from "../lib/migration";
 import { getRuleCatalog, MigrationRule } from "../lib/rules";
 import { formatBytes } from "../lib/scan";
+import { cancelTask, completeTask, failTask, requestTaskCancel, startTask } from "../lib/tasks";
+
+type TaskProgressEvent = {
+  task: string;
+  current: number;
+  total: number;
+  label: string;
+  status: string;
+  processedItems?: number;
+  movedCount?: number;
+  skippedCount?: number;
+  processedBytes?: number;
+  failureCount?: number;
+  currentFilePath?: string;
+  currentFileBytes?: number;
+  currentFileTotalBytes?: number;
+};
 
 export function Migration() {
   const [rules, setRules] = useState<MigrationRule[]>([]);
@@ -23,9 +41,23 @@ export function Migration() {
   const [checkingId, setCheckingId] = useState("");
   const [planningId, setPlanningId] = useState("");
   const [executingId, setExecutingId] = useState("");
+  const [progress, setProgress] = useState<TaskProgressEvent | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    listen<TaskProgressEvent>("clearc://task-progress", (event) => {
+      if (
+        !disposed &&
+        ["migration-precheck", "migration-plan", "migration-execute"].includes(event.payload.task)
+      ) {
+        setProgress(event.payload);
+      }
+    }).then((handler) => {
+      unlisten = handler;
+    });
+
     getRuleCatalog()
       .then((catalog) => setRules(catalog.migration))
       .catch((err) => setError(String(err)));
@@ -33,9 +65,15 @@ export function Migration() {
     getUserFolderTargets()
       .then(setTargets)
       .catch((err) => setError(String(err)));
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   function runPrecheck(folderId: string) {
+    const taskId = startTask("用户目录迁移预检查", "migration");
     setCheckingId(folderId);
     setError("");
     precheckUserFolderMigration(folderId, targetRoot)
@@ -44,12 +82,22 @@ export function Migration() {
           ...current,
           [folderId]: result,
         }));
+        completeTask(taskId, result.canContinue ? "通过" : `阻塞：${result.blockers.join("，")}`);
       })
-      .catch((err) => setError(String(err)))
+      .catch((err) => {
+        const message = String(err);
+        setError(message);
+        if (message.includes("cancelled")) {
+          cancelTask(taskId, message);
+        } else {
+          failTask(taskId, message);
+        }
+      })
       .finally(() => setCheckingId(""));
   }
 
   function createPlan(folderId: string) {
+    const taskId = startTask("生成用户目录迁移计划", "migration");
     setPlanningId(folderId);
     setError("");
     createUserFolderMigrationPlan(folderId, targetRoot)
@@ -58,8 +106,13 @@ export function Migration() {
           ...current,
           [folderId]: result,
         }));
+        completeTask(taskId, result.canExecute ? "ready" : `blocked：${result.blockers.join("，")}`);
       })
-      .catch((err) => setError(String(err)))
+      .catch((err) => {
+        const message = String(err);
+        setError(message);
+        failTask(taskId, message);
+      })
       .finally(() => setPlanningId(""));
   }
 
@@ -80,17 +133,26 @@ export function Migration() {
 
     setExecutingId(folderId);
     setError("");
+    const taskId = startTask(`执行用户目录迁移：${plan.name}`, "migration");
     executeUserFolderMigration(folderId, targetRoot, confirmation)
       .then((result) => {
         setMigrationResults((current) => ({
           ...current,
           [folderId]: result,
         }));
+        completeTask(taskId, `移动 ${result.movedCount} 项，跳过 ${result.skippedCount} 项`);
         getUserFolderTargets().then(setTargets).catch((err) => setError(String(err)));
       })
-      .catch((err) => setError(String(err)))
+      .catch((err) => {
+        const message = String(err);
+        setError(message);
+        failTask(taskId, message);
+      })
       .finally(() => setExecutingId(""));
   }
+
+  const busy = Boolean(checkingId || planningId || executingId);
+  const progressPercent = progress?.total ? Math.round((progress.current / progress.total) * 100) : 0;
 
   return (
     <div className="page-grid">
@@ -111,6 +173,32 @@ export function Migration() {
         {checkingId ? <p className="busy-text">正在预检查目标路径，请稍候。</p> : null}
         {planningId ? <p className="busy-text">正在生成迁移计划。</p> : null}
         {executingId ? <p className="busy-text">正在执行迁移，请不要重复点击。</p> : null}
+        {busy ? <p className="busy-text">{progress?.label ?? "正在处理迁移任务。"}</p> : null}
+        {busy ? (
+          <div className="progress-track" aria-label="迁移任务进度">
+            <div className="progress-fill" style={{ width: `${progressPercent}%` }} />
+          </div>
+        ) : null}
+        {busy && progress ? (
+          <p className="hint-text">
+            已处理 {progress.processedItems ?? progress.current}/{progress.total} 项
+            {typeof progress.movedCount === "number" ? ` / 已移动 ${progress.movedCount}` : ""}
+            {typeof progress.skippedCount === "number" ? ` / 跳过 ${progress.skippedCount}` : ""}
+            {typeof progress.failureCount === "number" ? ` / 失败 ${progress.failureCount}` : ""}
+            {typeof progress.processedBytes === "number" ? ` / ${formatBytes(progress.processedBytes)}` : ""}
+          </p>
+        ) : null}
+        {busy && progress?.currentFilePath ? (
+          <p className="hint-text">
+            当前文件 {formatBytes(progress.currentFileBytes ?? 0)}/
+            {formatBytes(progress.currentFileTotalBytes ?? 0)}：{progress.currentFilePath}
+          </p>
+        ) : null}
+        {busy && progress?.task ? (
+          <button className="secondary-action" onClick={() => requestTaskCancel(progress.task)} type="button">
+            取消当前任务
+          </button>
+        ) : null}
       </section>
       <section className="panel wide">
         <h2>当前用户目录</h2>

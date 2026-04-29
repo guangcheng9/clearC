@@ -56,4 +56,10 @@ C:\Users\当前用户\.codebuddy
 - 已支持规则驱动扫描。
 - 已支持统计存在性、文件数、跳过数和占用空间。
 - 已支持 Android、Cargo、Bun、通用缓存、Chromium snapshots、Claude、Agents、Apifox、CodeBuddy、AWS 等规则。
-- 当前只读扫描，不清理、不迁移、不创建 Junction、不修改环境变量。
+- 已支持 Android、Cargo、Rustup 的环境变量迁移计划、执行和回滚。
+- 环境变量迁移只修改用户级环境变量并创建目标目录，不自动移动已有开发工具文件。
+- 已支持 Junction 迁移预案，当前只检测源路径、目标路径、目标盘空间、目标冲突和已有 Junction 状态。
+- 已支持 Junction 真实执行与回滚代码路径，执行前必须基于 M11 预案、确认短语和二次确认。
+- `.aws`、凭据目录、AI 工具授权目录和不支持 `env` 的规则仍然只读展示。
+- 当前不清理开发工具目录；仅对可执行 Junction 预案开放移动目录和创建 Junction。
+- 真实 Junction 执行与回滚在 `V2 / M11.1` 实现，待真实 Junction 手动验收。
